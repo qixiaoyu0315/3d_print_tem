@@ -1,5 +1,10 @@
 {
-    "files.associations": {
-        "cmath": "cpp"
-    }
+  "files.associations": {
+    "cmath": "cpp"
+  },
+  "marscode.chatLanguage": "cn",
+  "marscode.codeCompletionPro": {
+    "enableCodeCompletionPro": true
+  },
+  "marscode.enableInlineCommand": true
 }

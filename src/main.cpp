@@ -25,7 +25,7 @@ PubSubClient client(espClient);
 
 // 温湿度读取引脚
 #define DHTPIN 1
-// 温湿度传感器型号    
+// 温湿度传感器型号
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 // 湿度
@@ -38,7 +38,7 @@ float temperature_heat;
 float temp_low = 30.0;
 // 高温关闭
 float temp_high = 40.0;
-//keep 温度
+// keep 温度
 boolean temp_keep = false;
 
 // 连接wifi
@@ -80,16 +80,18 @@ void reconnect()
 }
 
 // 封装的函数，用于读取传感器数据
-void readDHTData() {
+void readDHTData()
+{
   Serial.println(F("DHT33"));
-    humidity = dht.readHumidity();
-    temperature_celsius = dht.readTemperature();
+  humidity = dht.readHumidity();
+  temperature_celsius = dht.readTemperature();
 
-    if (isnan(humidity) || isnan(temperature_celsius)) {
-        Serial.println(F("Failed to read from DHT sensor!"));
-        return;
-    }
-    temperature_heat = dht.computeHeatIndex(temperature_celsius, humidity, false);
+  if (isnan(humidity) || isnan(temperature_celsius))
+  {
+    Serial.println(F("Failed to read from DHT sensor!"));
+    return;
+  }
+  temperature_heat = dht.computeHeatIndex(temperature_celsius, humidity, false);
 }
 
 void callback(char *topic, byte *payload, unsigned int length)
@@ -113,16 +115,19 @@ void callback(char *topic, byte *payload, unsigned int length)
 
     // 尝试将接收到的消息内容转换为float类型
     float floatValue;
-    char* endptr;
+    char *endptr;
     floatValue = strtof(message, &endptr);
-    if (*endptr == '\0') {
+    if (*endptr == '\0')
+    {
       Serial.print("接收到的值转换为float后: ");
       Serial.println(floatValue);
-    } else {
+    }
+    else
+    {
       Serial.println("接收到的消息无法转换为float类型");
     }
 
-    if (floatValue >= temp_high )
+    if (floatValue >= temp_high)
     {
       digitalWrite(controlPin, LOW);
       Serial.println("关闭加热");
@@ -136,11 +141,13 @@ void callback(char *topic, byte *payload, unsigned int length)
       client.publish("testtopic/msg", "ON");
       temp_keep == false;
     }
-    else{
+    else
+    {
       Serial.println("OK");
       client.publish("testtopic/msg", "KEEP");
     }
-  }else if (strcmp(topic, "testtopic/high") == 0)
+  }
+  else if (strcmp(topic, "testtopic/high") == 0)
   {
     char high_str[10];
     strncpy(high_str, (const char *)payload, length);
@@ -151,7 +158,8 @@ void callback(char *topic, byte *payload, unsigned int length)
     {
       temp_high = high_t;
     }
-  }else if (strcmp(topic, "testtopic/low") == 0)
+  }
+  else if (strcmp(topic, "testtopic/low") == 0)
   {
     char low_str[10];
     strncpy(low_str, (const char *)payload, length);
@@ -164,7 +172,8 @@ void callback(char *topic, byte *payload, unsigned int length)
     }
   }
 }
-void setup() {
+void setup()
+{
   pinMode(controlPin, OUTPUT);
   Serial.begin(115200);
   dht.begin();
@@ -173,7 +182,8 @@ void setup() {
   client.setCallback(callback);
 }
 
-void loop() {
+void loop()
+{
 
   if (!client.connected())
   {
@@ -183,28 +193,29 @@ void loop() {
 
   // 使用millis()函数来判断是否到达读取传感器数据的时间间隔
   unsigned long currentMillis = millis();
-  if (currentMillis - previousMillis >= interval) {
-      previousMillis = currentMillis;
-      readDHTData();
-      // 将温度数据发布到MQTT主题
-      char tempStr[8];
-      dtostrf(temperature_celsius, 4, 2, tempStr);
-      client.publish("testtopic/temp", tempStr);
+  if (currentMillis - previousMillis >= interval)
+  {
+    previousMillis = currentMillis;
+    readDHTData();
+    // 将温度数据发布到MQTT主题
+    char tempStr[8];
+    dtostrf(temperature_celsius, 4, 2, tempStr);
+    client.publish("testtopic/temp", tempStr);
 
-      char humStr[8];
-      dtostrf(humidity, 4, 2, humStr);
-      client.publish("testtopic/hum", humStr);
+    char humStr[8];
+    dtostrf(humidity, 4, 2, humStr);
+    client.publish("testtopic/hum", humStr);
 
-      char heatStr[8];
-      dtostrf(temperature_heat, 4, 2, heatStr);
-      client.publish("testtopic/heat", heatStr);
+    char heatStr[8];
+    dtostrf(temperature_heat, 4, 2, heatStr);
+    client.publish("testtopic/heat", heatStr);
 
-      char highStr[8];
-      dtostrf(temp_high, 4, 2, highStr);
-      client.publish("testtopic/high", highStr);
+    char highStr[8];
+    dtostrf(temp_high, 4, 2, highStr);
+    client.publish("testtopic/high", highStr);
 
-      char lowStr[8];
-      dtostrf(temp_low, 4, 2, heatStr);
-      client.publish("testtopic/low", heatStr);
+    char lowStr[8];
+    dtostrf(temp_low, 4, 2, heatStr);
+    client.publish("testtopic/low", heatStr);
   }
 }

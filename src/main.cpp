@@ -80,17 +80,28 @@ void reconnect()
 }
 
 // 封装的函数，用于读取传感器数据
+/**
+ * 读取DHT传感器数据的函数
+ * 该函数负责读取DHT传感器的湿度、温度和体感温度，并将这些数据存储在全局变量中。
+ * 如果读取失败，将通过串口输出错误信息。
+ */
 void readDHTData()
 {
+  // 打印DHT传感器的型号
   Serial.println(F("DHT33"));
-  humidity = dht.readHumidity();
-  temperature_celsius = dht.readTemperature();
 
+  // 读取湿度数据并存储在humidity变量中
+  humidity = dht.readHumidity();
+  // 读取温度数据并存储在temperature_celsius变量中
+  temperature_celsius = dht.readTemperature();
+  // 检查湿度或温度数据是否无效
   if (isnan(humidity) || isnan(temperature_celsius))
   {
+    // 如果数据无效，打印错误信息并返回
     Serial.println(F("Failed to read from DHT sensor!"));
     return;
   }
+  // 计算体感温度并存储在temperature_heat变量中
   temperature_heat = dht.computeHeatIndex(temperature_celsius, humidity, false);
 }
 

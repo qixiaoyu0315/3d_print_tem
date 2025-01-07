@@ -3,34 +3,19 @@
 #include <PubSubClient.h>
 #include <EEPROM.h>
 #include <WebServer.h>
-
 #include "DHT.h"
 
 // 定义用于擦除信息的引脚
 #define EEPROM_SIZE 100
 #define ERASE_PIN 5
-
-// mqtt服务相关
-const char *mqttServer = "192.168.6.248";
-const int mqttPort = 1883;
-const char *mqttUser = "esp32s3";
-const char *mqttPassword = "123456";
-const char *topic = "testtopic/#";
-
-// // wifi 定义
-// const char *ssid = "MTK_CHEETAH_AP_2.4G";
-// const char *password = "5680578abc..";
+// 继电器引脚
+#define controlPin 2
+// 温湿度读取引脚
+#define DHTPIN 1
 
 unsigned long previousMillis = 0;
 const long interval = 10000;
 
-WiFiClient espClient;
-PubSubClient client(espClient);
-// 继电器引脚
-#define controlPin 2
-
-// 温湿度读取引脚
-#define DHTPIN 1
 // 温湿度传感器型号
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
@@ -47,6 +32,19 @@ float temp_high = 40.0;
 // keep 温度
 boolean temp_keep = false;
 
+// 存储用户输入的目标 WiFi 的 SSID 和密码
+String targetSSID;
+String targetPassword;
+WiFiClient espClient;
+
+PubSubClient client(espClient);
+// mqtt服务相关
+const char *mqttServer = "192.168.6.248";
+const int mqttPort = 1883;
+const char *mqttUser = "esp32s3";
+const char *mqttPassword = "123456";
+const char *topic = "testtopic/#";
+
 const char *ssid_AP = "MyESP32S3AP";
 const char *password_AP = "12345678";
 IPAddress local_IP(192, 168, 4, 1);
@@ -54,10 +52,6 @@ IPAddress gateway(192, 168, 4, 1);
 IPAddress subnet(255, 255, 255, 0);
 
 WebServer server(80);
-
-// 存储用户输入的目标 WiFi 的 SSID 和密码
-String targetSSID;
-String targetPassword;
 
 const char index_html[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
@@ -366,10 +360,11 @@ void callback(char *topic, byte *payload, unsigned int length)
 }
 void setup()
 {
-  pinMode(controlPin, OUTPUT);
   Serial.begin(115200);
-  EEPROM.begin(EEPROM_SIZE);
+  pinMode(controlPin, OUTPUT);
   pinMode(ERASE_PIN, INPUT_PULLUP); // 设置擦除引脚为输入上拉模式
+
+  EEPROM.begin(EEPROM_SIZE);
 
   Serial.println("ESP32S3 WiFi 配网示例");
 
@@ -410,7 +405,7 @@ void setup()
   }
 
   dht.begin();
-  // setup_wifi();
+
   client.setServer(mqttServer, mqttPort);
   client.setCallback(callback);
 }

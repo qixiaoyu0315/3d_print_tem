@@ -1,8 +1,11 @@
 #include <Arduino.h>
+
 #include <WiFi.h>
-#include <PubSubClient.h>
 #include <EEPROM.h>
 #include <WebServer.h>
+#include <PubSubClient.h>
+#include <WiFiClientSecure.h>
+
 #include "DHT.h"
 
 // 定义用于擦除信息的引脚
@@ -19,31 +22,43 @@ const long interval = 10000;
 // 温湿度传感器型号
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
-// 湿度
-float humidity;
-// 温度
-float temperature_celsius;
-// 体感温度
-float temperature_heat;
-// 低温开启
-float temp_low = 30.0;
-// 高温关闭
-float temp_high = 40.0;
-// keep 温度
-boolean temp_keep = false;
+struct TemperatureData
+{
+  // 湿度
+  float humidity;
+  // 温度
+  float temperature_celsius;
+  // 体感温度
+  float temperature_heat;
+  // 低温开启
+  float temp_low = 30.0;
+  // 高温关闭
+  float temp_high = 40.0;
+  // keep 温度
+  boolean temp_keep = false;
+};
+TemperatureData tempData;
 
 // 存储用户输入的目标 WiFi 的 SSID 和密码
 String targetSSID;
 String targetPassword;
-WiFiClient espClient;
 
+WiFiClientSecure espClient;
 PubSubClient client(espClient);
-// mqtt服务相关
-const char *mqttServer = "192.168.6.248";
-const int mqttPort = 1883;
-const char *mqttUser = "esp32s3";
-const char *mqttPassword = "123456";
-const char *topic = "testtopic/#";
+
+// // mqtt服务相关
+// const char *mqttServer = "192.168.6.248";
+// const int mqttPort = 1883;
+// const char *mqttUser = "esp32s3";
+// const char *mqttPassword = "123456";
+// const char *topic = "testtopic/#";
+
+// MQTT Broker settings
+const int mqttPort = 8883;                                     // MQTT port (TLS)
+const char *mqttServer = "ebd16e9d.ala.cn-hangzhou.emqxsl.cn"; // EMQX broker endpoint
+const char *topic = "testtopic/#";                             // MQTT topic
+const char *mqttUser = "esp32c3print";                         // MQTT username for authentication
+const char *mqttPassword = "yjMMjxnbcPNifc8";                  // MQTT password for authentication
 
 const char *ssid_AP = "MyESP32S3AP";
 const char *password_AP = "12345678";
@@ -52,60 +67,6 @@ IPAddress gateway(192, 168, 4, 1);
 IPAddress subnet(255, 255, 255, 0);
 
 WebServer server(80);
-
-const char index_html[] PROGMEM = R"rawliteral(
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>WiFi Configuration</title>
-    <!-- 引入 Bootstrap CSS -->
-    <link
-      rel="stylesheet"
-      href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css"
-    />
-  </head>
-  <body>
-    <div class="container mt-5">
-      <div class="card">
-        <div class="card-header">
-          <h1>WiFi Configuration</h1>
-        </div>
-        <div class="card-body">
-          <form method="post" action="/config">
-            <div class="form-group">
-              <label for="ssid">WiFi SSID:</label>
-              <input
-                type="text"
-                class="form-control"
-                id="ssid"
-                name="ssid"
-                required
-              />
-            </div>
-            <div class="form-group">
-              <label for="password">WiFi Password:</label>
-              <input
-                type="password"
-                class="form-control"
-                id="password"
-                name="password"
-                required
-              />
-            </div>
-            <button type="submit" class="btn btn-primary">Submit</button>
-          </form>
-        </div>
-      </div>
-    </div>
-    <!-- 引入 Bootstrap JS 和 jQuery (可选) -->
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.16.0/umd/popper.min.js"></script>
-    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
-  </body>
-</html>
-)rawliteral";
 
 // 从 EEPROM 读取 WiFi 信息
 void readWiFiInfoFromEEPROM()
@@ -170,7 +131,12 @@ void eraseWiFiInfoFromEEPROM()
 // 处理根页面，显示 WiFi 配置表单
 void handleRoot()
 {
-  server.send(200, "text/html", index_html);
+  String html = "<html><body><h1>WiFi Configuration</h1>"
+                "<form method='post' action='/config'>"
+                "WiFi SSID: <input type='text' name='ssid'><br>"
+                "WiFi Password: <input type='password' name='password'><br>"
+                "<input type='submit' value='Submit'></form></body></html>";
+  server.send(200, "text/html", html);
 }
 
 // 连接到用户输入的 WiFi
@@ -198,6 +164,19 @@ void connectToWiFi()
   }
 }
 
+// 检查是否需要擦除信息
+void checkErasePin()
+{
+  Serial.println(digitalRead(ERASE_PIN));
+  if (digitalRead(ERASE_PIN) == HIGH)
+  {
+    Serial.println("Erasing WiFi information...");
+    eraseWiFiInfoFromEEPROM();
+    // 等待一段时间，防止误触发
+    delay(1000);
+  }
+}
+
 // 处理用户提交的 WiFi 配置信息
 void handleConfig()
 {
@@ -221,25 +200,13 @@ void handleConfig()
   }
 }
 
-// 检查是否需要擦除信息
-void checkErasePin()
-{
-  if (digitalRead(ERASE_PIN) == HIGH)
-  {
-    Serial.println("Erasing WiFi information...");
-    eraseWiFiInfoFromEEPROM();
-    // 等待一段时间，防止误触发
-    delay(1000);
-  }
-}
-
 // 连接mqtt服务
 void reconnect()
 {
   while (!client.connected())
   {
     Serial.print("Attempting MQTT connection...");
-    if (client.connect("3dprint", mqttUser, mqttPassword))
+    if (client.connect("esp32c3printid", mqttUser, mqttPassword))
     {
       Serial.println("connected");
       client.subscribe(topic);
@@ -262,22 +229,19 @@ void reconnect()
  */
 void readDHTData()
 {
-  // 打印DHT传感器的型号
-  Serial.println(F("DHT33"));
-
   // 读取湿度数据并存储在humidity变量中
-  humidity = dht.readHumidity();
+  tempData.humidity = dht.readHumidity();
   // 读取温度数据并存储在temperature_celsius变量中
-  temperature_celsius = dht.readTemperature();
+  tempData.temperature_celsius = dht.readTemperature();
   // 检查湿度或温度数据是否无效
-  if (isnan(humidity) || isnan(temperature_celsius))
+  if (isnan(tempData.humidity) || isnan(tempData.temperature_celsius))
   {
     // 如果数据无效，打印错误信息并返回
     Serial.println(F("Failed to read from DHT sensor!"));
     return;
   }
   // 计算体感温度并存储在temperature_heat变量中
-  temperature_heat = dht.computeHeatIndex(temperature_celsius, humidity, false);
+  tempData.temperature_heat = dht.computeHeatIndex(tempData.temperature_celsius, tempData.humidity, false);
 }
 
 void callback(char *topic, byte *payload, unsigned int length)
@@ -313,19 +277,19 @@ void callback(char *topic, byte *payload, unsigned int length)
       Serial.println("接收到的消息无法转换为float类型");
     }
 
-    if (floatValue >= temp_high)
+    if (floatValue >= tempData.temp_high)
     {
       digitalWrite(controlPin, LOW);
       Serial.println("关闭加热");
       client.publish("testtopic/msg", "OFF");
-      temp_keep = true;
+      tempData.temp_keep = true;
     }
-    else if (floatValue <= temp_low || !temp_keep)
+    else if (floatValue <= tempData.temp_low || !tempData.temp_keep)
     {
       digitalWrite(controlPin, HIGH);
       Serial.println("开启加热");
       client.publish("testtopic/msg", "ON");
-      temp_keep == false;
+      tempData.temp_keep == false;
     }
     else
     {
@@ -342,7 +306,7 @@ void callback(char *topic, byte *payload, unsigned int length)
     float high_t = atof(high_str);
     if (high_t >= 0.0 && high_t <= 60.0)
     {
-      temp_high = high_t;
+      tempData.temp_high = high_t;
     }
   }
   else if (strcmp(topic, "testtopic/low") == 0)
@@ -354,29 +318,40 @@ void callback(char *topic, byte *payload, unsigned int length)
     float low_t = atof(low_str);
     if (low_t >= 0.0 && low_t <= 60.0)
     {
-      temp_low = low_t;
+      tempData.temp_low = low_t;
     }
   }
 }
+
+// 发布消息
+void publishMessage(const char *message)
+{
+  if (!client.connected())
+  {
+    reconnect();
+  }
+  client.publish(topic, message);
+  Serial.println("Message published");
+}
+
 void setup()
 {
   Serial.begin(115200);
   pinMode(controlPin, OUTPUT);
-  pinMode(ERASE_PIN, INPUT_PULLUP); // 设置擦除引脚为输入上拉模式
+  pinMode(ERASE_PIN, INPUT);
 
   EEPROM.begin(EEPROM_SIZE);
-
-  Serial.println("ESP32S3 WiFi 配网示例");
-
-  // 尝试读取 EEPROM 中的 WiFi 信息
   readWiFiInfoFromEEPROM();
-
-  // 检查是否需要擦除信息
   checkErasePin();
+
+  size_t psramSize = ESP.getPsramSize();
+  Serial.print("PSRAM Size: ");
+  Serial.print(psramSize);
+  Serial.println(" bytes");
 
   if (targetSSID.length() > 0 && targetPassword.length() > 0)
   {
-    Serial.println("尝试从 EEPROM 读取 WiFi 信息并连接...");
+    Serial.println(" EEPROM read WiFi...");
     connectToWiFi();
   }
   else
@@ -404,10 +379,23 @@ void setup()
     }
   }
 
-  dht.begin();
+  // 设置 WiFiClientSecure 为 TLS 模式
+  const char *caCert = "-----BEGIN CERTIFICATE-----\n"
+                       "MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQUFADBhMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBDQTAeFw0wNjExMTAwMDAwMDBaFw0zMTExMTAwMDAwMDBaMGExCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5jb20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4jvhEXLeqKTTo1eqUKKPC3eQyaKl7hLOllsBCSDMAZOnTjC3U/dDxGkAV53ijSLdhwZAAIEJzs4bg7/fzTtxRuLWZscFs3YnFo97nh6Vfe63SKMI2tavegw5BmV/Sl0fvBf4q77uKNd0f3p4mVmFaG5cIzJLv07A6Fpt43C/dxC//AH2hdmoRBBYMql1GNXRor5H4idq9Joz+EkIYIvUX7Q6hL+hqkpMfT7PT19sdl6gSzeRntwi5m3OFBqOasv+zbMUZBfHWymeMr/y7vrTC0LUq7dBMtoM1O/4gdW7jVg/tRvoSSiicNoxBN33shbyTApOB6jtSj1etX+jkMOvJwIDAQABo2MwYTAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUA95QNVbRTLtm8KPiGxvDl7I90VUwHwYDVR0jBBgwFoAUA95QNVbRTLtm8KPiGxvDl7I90VUwDQYJKoZIhvcNAQEFBQADggEBAMucN6pIExIK+t1EnE9SsPTfrgT1eXkIoyQY/EsrhMAtudXH/vTBH1jLuG2cenTnmCmrEbXjcKChzUyImZOMkXDiqw8cvpOp/2PV5Adg06O/nVsJ8dWO41P0jmP6P6fbtGbfYmbW0W5BjfIttep3Sp+dWOIrWcBAI+0tKIJFPnlUkiaY4IBIqDfv8NZ5YBberOgOzW6sRBc4L0na4UU+Krk2U886UAb3LujEV0lsYSEY1QSteDwsOoBrp+uvFRTp2InBuThs4pFsiv9kuXclVzDAGySj4dzp30d8tbQkCAUw7C29C79Fv1C5qfPrmAESrciIxpg0X40KPMbp1ZWVbd4="
+                       "-----END CERTIFICATE-----";
+
+  // 在 setup 函数中
+  espClient.setCACert(caCert);
+
+  // espClient.setCACert(NULL);
+  // espClient.setInsecure();
 
   client.setServer(mqttServer, mqttPort);
   client.setCallback(callback);
+
+  publishMessage("Hello, MQTT!");
+
+  dht.begin();
 }
 
 void loop()
@@ -427,23 +415,23 @@ void loop()
       readDHTData();
       // 将温度数据发布到MQTT主题
       char tempStr[8];
-      dtostrf(temperature_celsius, 4, 2, tempStr);
+      dtostrf(tempData.temperature_celsius, 4, 2, tempStr);
       client.publish("testtopic/temp", tempStr);
 
       char humStr[8];
-      dtostrf(humidity, 4, 2, humStr);
+      dtostrf(tempData.humidity, 4, 2, humStr);
       client.publish("testtopic/hum", humStr);
 
       char heatStr[8];
-      dtostrf(temperature_heat, 4, 2, heatStr);
+      dtostrf(tempData.temperature_heat, 4, 2, heatStr);
       client.publish("testtopic/heat", heatStr);
 
       char highStr[8];
-      dtostrf(temp_high, 4, 2, highStr);
+      dtostrf(tempData.temp_high, 4, 2, highStr);
       client.publish("testtopic/high", highStr);
 
       char lowStr[8];
-      dtostrf(temp_low, 4, 2, heatStr);
+      dtostrf(tempData.temp_low, 4, 2, heatStr);
       client.publish("testtopic/low", heatStr);
     }
   }
@@ -454,6 +442,4 @@ void loop()
       server.handleClient();
     }
   }
-  // 循环检查擦除引脚状态
-  checkErasePin();
 }

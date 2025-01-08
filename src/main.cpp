@@ -47,18 +47,18 @@ WiFiClientSecure espClient;
 PubSubClient client(espClient);
 
 // // mqtt服务相关
-// const char *mqttServer = "192.168.6.248";
-// const int mqttPort = 1883;
-// const char *mqttUser = "esp32s3";
-// const char *mqttPassword = "123456";
-// const char *topic = "testtopic/#";
+// const int mqtt_port = 1883;
+// const char *mqtt_broker = "192.168.6.248";
+// const char *mqtt_username = "esp32s3";
+// const char *mqtt_password = "123456";
+// const char *mqtt_topic = "testtopic/#";
 
 // MQTT Broker settings
-const int mqttPort = 8883;                                     // MQTT port (TLS)
-const char *mqttServer = "ebd16e9d.ala.cn-hangzhou.emqxsl.cn"; // EMQX broker endpoint
-const char *topic = "testtopic/#";                             // MQTT topic
-const char *mqttUser = "esp32c3print";                         // MQTT username for authentication
-const char *mqttPassword = "yjMMjxnbcPNifc8";                  // MQTT password for authentication
+const int mqtt_port = 8883;                                     // MQTT port (TLS)
+const char *mqtt_broker = "ebd16e9d.ala.cn-hangzhou.emqxsl.cn"; // EMQX broker endpoint
+const char *mqtt_username = "esp32c3print";                     // MQTT username for authentication
+const char *mqtt_password = "yjMMjxnbcPNifc8";                  // MQTT password for authentication
+const char *mqtt_topic = "testtopic/1";                         // MQTT topic
 
 const char *ssid_AP = "MyESP32S3AP";
 const char *password_AP = "12345678";
@@ -206,10 +206,10 @@ void reconnect()
   while (!client.connected())
   {
     Serial.print("Attempting MQTT connection...");
-    if (client.connect("esp32c3printid", mqttUser, mqttPassword))
+    if (client.connect("esp32c3printid", mqtt_username, mqtt_password))
     {
       Serial.println("connected");
-      client.subscribe(topic);
+      // client.subscribe(topic);
     }
     else
     {
@@ -330,7 +330,7 @@ void publishMessage(const char *message)
   {
     reconnect();
   }
-  client.publish(topic, message);
+  client.publish(mqtt_topic, message);
   Serial.println("Message published");
 }
 
@@ -379,21 +379,18 @@ void setup()
     }
   }
 
-  // 设置 WiFiClientSecure 为 TLS 模式
-  const char *caCert = "-----BEGIN CERTIFICATE-----\n"
-                       "MIIDrzCCApegAwIBAgIQCDvgVpBCRrGhdWrJWZHHSjANBgkqhkiG9w0BAQUFADBhMQswCQYDVQQGEwJVUzEVMBMGA1UEChMMRGlnaUNlcnQgSW5jMRkwFwYDVQQLExB3d3cuZGlnaWNlcnQuY29tMSAwHgYDVQQDExdEaWdpQ2VydCBHbG9iYWwgUm9vdCBDQTAeFw0wNjExMTAwMDAwMDBaFw0zMTExMTAwMDAwMDBaMGExCzAJBgNVBAYTAlVTMRUwEwYDVQQKEwxEaWdpQ2VydCBJbmMxGTAXBgNVBAsTEHd3dy5kaWdpY2VydC5jb20xIDAeBgNVBAMTF0RpZ2lDZXJ0IEdsb2JhbCBSb290IENBMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA4jvhEXLeqKTTo1eqUKKPC3eQyaKl7hLOllsBCSDMAZOnTjC3U/dDxGkAV53ijSLdhwZAAIEJzs4bg7/fzTtxRuLWZscFs3YnFo97nh6Vfe63SKMI2tavegw5BmV/Sl0fvBf4q77uKNd0f3p4mVmFaG5cIzJLv07A6Fpt43C/dxC//AH2hdmoRBBYMql1GNXRor5H4idq9Joz+EkIYIvUX7Q6hL+hqkpMfT7PT19sdl6gSzeRntwi5m3OFBqOasv+zbMUZBfHWymeMr/y7vrTC0LUq7dBMtoM1O/4gdW7jVg/tRvoSSiicNoxBN33shbyTApOB6jtSj1etX+jkMOvJwIDAQABo2MwYTAOBgNVHQ8BAf8EBAMCAYYwDwYDVR0TAQH/BAUwAwEB/zAdBgNVHQ4EFgQUA95QNVbRTLtm8KPiGxvDl7I90VUwHwYDVR0jBBgwFoAUA95QNVbRTLtm8KPiGxvDl7I90VUwDQYJKoZIhvcNAQEFBQADggEBAMucN6pIExIK+t1EnE9SsPTfrgT1eXkIoyQY/EsrhMAtudXH/vTBH1jLuG2cenTnmCmrEbXjcKChzUyImZOMkXDiqw8cvpOp/2PV5Adg06O/nVsJ8dWO41P0jmP6P6fbtGbfYmbW0W5BjfIttep3Sp+dWOIrWcBAI+0tKIJFPnlUkiaY4IBIqDfv8NZ5YBberOgOzW6sRBc4L0na4UU+Krk2U886UAb3LujEV0lsYSEY1QSteDwsOoBrp+uvFRTp2InBuThs4pFsiv9kuXclVzDAGySj4dzp30d8tbQkCAUw7C29C79Fv1C5qfPrmAESrciIxpg0X40KPMbp1ZWVbd4="
-                       "-----END CERTIFICATE-----";
+  // // 设置 WiFiClientSecure 为 TLS 模式
+  // const char *caCert = "-----BEGIN CERTIFICATE-----\n"
+  //                      "输入自己的CA证书"
+  //                      "-----END CERTIFICATE-----";
+  // espClient.setCACert(caCert);
 
-  // 在 setup 函数中
-  espClient.setCACert(caCert);
+  // 与上面二选一
+  espClient.setCACert(NULL);
+  espClient.setInsecure();
 
-  // espClient.setCACert(NULL);
-  // espClient.setInsecure();
-
-  client.setServer(mqttServer, mqttPort);
+  client.setServer(mqtt_broker, mqtt_port);
   client.setCallback(callback);
-
-  publishMessage("Hello, MQTT!");
 
   dht.begin();
 }

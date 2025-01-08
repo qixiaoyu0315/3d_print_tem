@@ -1,6 +1,7 @@
 {
   "files.associations": {
-    "cmath": "cpp"
+    "cmath": "cpp",
+    "string": "cpp"
   },
   "marscode.chatLanguage": "cn",
   "marscode.codeCompletionPro": {

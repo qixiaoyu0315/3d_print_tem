@@ -48,17 +48,17 @@ PubSubClient client(espClient);
 
 // // mqtt服务相关
 // const int mqtt_port = 1883;
-// const char *mqtt_broker = "192.168.6.248";
-// const char *mqtt_username = "esp32s3";
-// const char *mqtt_password = "123456";
-// const char *mqtt_topic = "testtopic/#";
+// String mqtt_broker = "192.168.6.248";
+// String mqtt_username = "esp32s3";
+// String mqtt_password = "123456";
+// String mqtt_topic = "testtopic/#";
 
 // MQTT Broker settings
-const int mqtt_port = 8883;                                     // MQTT port (TLS)
-const char *mqtt_broker = "ebd16e9d.ala.cn-hangzhou.emqxsl.cn"; // EMQX broker endpoint
-const char *mqtt_username = "esp32c3print";                     // MQTT username for authentication
-const char *mqtt_password = "yjMMjxnbcPNifc8";                  // MQTT password for authentication
-const char *mqtt_topic = "testtopic/1";                         // MQTT topic
+const int mqtt_port = 8883;                                // MQTT port (TLS)
+String mqtt_broker = "ebd16e9d.ala.cn-hangzhou.emqxsl.cn"; // EMQX broker endpoint
+String mqtt_username = "esp32c3print";                     // MQTT username for authentication
+String mqtt_password = "yjMMjxnbcPNifc8";                  // MQTT password for authentication
+String mqtt_topic = "testtopic";                           // MQTT topic
 
 const char *ssid_AP = "MyESP32S3AP";
 const char *password_AP = "12345678";
@@ -206,10 +206,10 @@ void reconnect()
   while (!client.connected())
   {
     Serial.print("Attempting MQTT connection...");
-    if (client.connect("esp32c3printid", mqtt_username, mqtt_password))
+    if (client.connect("esp32c3printid", mqtt_username.c_str(), mqtt_password.c_str()))
     {
       Serial.println("connected");
-      // client.subscribe(topic);
+      client.subscribe((mqtt_topic + "/#").c_str());
     }
     else
     {
@@ -330,7 +330,7 @@ void publishMessage(const char *message)
   {
     reconnect();
   }
-  client.publish(mqtt_topic, message);
+  client.publish(mqtt_topic.c_str(), message);
   Serial.println("Message published");
 }
 
@@ -389,7 +389,7 @@ void setup()
   espClient.setCACert(NULL);
   espClient.setInsecure();
 
-  client.setServer(mqtt_broker, mqtt_port);
+  client.setServer(mqtt_broker.c_str(), mqtt_port);
   client.setCallback(callback);
 
   dht.begin();

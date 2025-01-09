@@ -439,7 +439,9 @@ void setup()
 {
   Serial.begin(115200);
   pinMode(controlPin, OUTPUT);
+  pinMode(ERASE_PIN, OUTPUT);
   digitalWrite(controlPin, LOW);
+  digitalWrite(ERASE_PIN, LOW);
   pinMode(ERASE_PIN, INPUT);
   // // 设置 WiFiClientSecure 为 TLS 模式
   // const char *caCert = "-----BEGIN CERTIFICATE-----\n"

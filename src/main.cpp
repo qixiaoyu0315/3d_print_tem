@@ -36,18 +36,18 @@ TemperatureData tempData;
 // mqtt服务相关信息
 struct MqttMsgData
 {
-  int mqtt_port;        // MQTT port (TLS)
-  String mqtt_broker;   // EMQX broker endpoint
-  String mqtt_username; // MQTT username for authentication
-  String mqtt_password; // MQTT password for authentication
-  String mqtt_topic;    // MQTT topic
-  const char *topic_sub = (mqtt_topic + "/#").c_str();
-  const char *topic_temp = (mqtt_topic + "/temp").c_str();
-  const char *topic_msg = (mqtt_topic + "/msg").c_str();
-  const char *topic_high = (mqtt_topic + "/high").c_str();
-  const char *topic_low = (mqtt_topic + "/low").c_str();
-  const char *topic_hum = (mqtt_topic + "/hum").c_str();
-  const char *topic_heat = (mqtt_topic + "/heat").c_str();
+  int mqtt_port;
+  String mqtt_broker;
+  String mqtt_username;
+  String mqtt_password;
+  String mqtt_topic;
+  String topic_sub;
+  String topic_temp;
+  String topic_msg;
+  String topic_high;
+  String topic_low;
+  String topic_hum;
+  String topic_heat;
 };
 MqttMsgData mqData;
 
@@ -132,6 +132,14 @@ void readInfoFromEEPROM()
     mqData.mqtt_password = String(mqtt_password);
     mqData.mqtt_topic = String(mqtt_topic);
     mqData.mqtt_port = mqttPort;
+
+    mqData.topic_sub = mqData.mqtt_topic + "/#";
+    mqData.topic_temp = mqData.mqtt_topic + "/temp";
+    mqData.topic_msg = mqData.mqtt_topic + "/msg";
+    mqData.topic_high = mqData.mqtt_topic + "/high";
+    mqData.topic_low = mqData.mqtt_topic + "/low";
+    mqData.topic_hum = mqData.mqtt_topic + "/hum";
+    mqData.topic_heat = mqData.mqtt_topic + "/heat";
   }
   EEPROM.end();
 }
@@ -257,8 +265,9 @@ void checkErasePin()
     delay(1000);
   }
 }
+
 // 连接mqtt服务
-void reconnect()
+void reconnectToMqtt()
 {
   while (!client.connected())
   {
@@ -267,7 +276,7 @@ void reconnect()
     if (client.connect(mqData.mqtt_username.c_str(), mqData.mqtt_username.c_str(), mqData.mqtt_password.c_str()))
     {
       Serial.println("connected");
-      client.subscribe(mqData.topic_sub);
+      client.subscribe(mqData.topic_sub.c_str());
     }
     else
     {
@@ -294,9 +303,10 @@ void handleConfig()
 
     server.send(200, "text/plain", "Configuration received. Connecting to WiFi and MQTT...");
     saveInfoToEEPROM(targetSSID, targetPassword, mqData.mqtt_broker, mqData.mqtt_username, mqData.mqtt_password, mqData.mqtt_topic, mqData.mqtt_port);
+    readInfoFromEEPROM();
     // 尝试连接到目标 WiFi 和 MQTT
     connectToWiFi();
-    reconnect();
+    reconnectToMqtt();
   }
   else
   {
@@ -304,11 +314,7 @@ void handleConfig()
   }
 }
 
-/**
- * 读取DHT传感器数据的函数
- * 该函数负责读取DHT传感器的湿度、温度和体感温度，并将这些数据存储在全局变量中。
- * 如果读取失败，将通过串口输出错误信息。
- */
+// 读取DHT传感器数据的函数
 void readDHTData()
 {
   // 读取湿度数据并存储在humidity变量中
@@ -325,31 +331,34 @@ void readDHTData()
   // 计算体感温度并存储在temperature_heat变量中
   tempData.temperature_heat = dht.computeHeatIndex(tempData.temperature_celsius, tempData.humidity, false);
 }
+
+// 发布DHT传感器数据的函数
 void publishSensorData()
 {
   readDHTData();
 
   char tempStr[8];
   dtostrf(tempData.temperature_celsius, 4, 2, tempStr);
-  client.publish(mqData.topic_temp, tempStr);
+  client.publish(mqData.topic_temp.c_str(), tempStr);
 
   char humStr[8];
   dtostrf(tempData.humidity, 4, 2, humStr);
-  client.publish(mqData.topic_hum, humStr);
+  client.publish(mqData.topic_hum.c_str(), humStr);
 
   char heatStr[8];
   dtostrf(tempData.temperature_heat, 4, 2, heatStr);
-  client.publish(mqData.topic_heat, heatStr);
+  client.publish(mqData.topic_heat.c_str(), heatStr);
 
   char highStr[8];
   dtostrf(tempData.temp_high, 4, 2, highStr);
-  client.publish(mqData.topic_high, highStr);
+  client.publish(mqData.topic_high.c_str(), highStr);
 
   char lowStr[8];
   dtostrf(tempData.temp_low, 4, 2, lowStr);
-  client.publish(mqData.topic_low, lowStr);
+  client.publish(mqData.topic_low.c_str(), lowStr);
 }
 
+// 处理MQTT消息的回调函数
 void callback(char *topic, byte *payload, unsigned int length)
 {
   Serial.print("Message arrived [");
@@ -363,7 +372,7 @@ void callback(char *topic, byte *payload, unsigned int length)
   Serial.println();
 
   // 控制继电器开关
-  if (strcmp(topic, mqData.topic_temp) == 0)
+  if (strcmp(topic, mqData.topic_temp.c_str()) == 0)
   {
     char message[length + 1];
     memcpy(message, payload, length);
@@ -387,23 +396,23 @@ void callback(char *topic, byte *payload, unsigned int length)
     {
       digitalWrite(controlPin, LOW);
       Serial.println("关闭加热");
-      client.publish(mqData.topic_msg, "OFF");
+      client.publish(mqData.topic_msg.c_str(), "OFF");
       tempData.temp_keep = true;
     }
     else if (floatValue <= tempData.temp_low || !tempData.temp_keep)
     {
       digitalWrite(controlPin, HIGH);
       Serial.println("开启加热");
-      client.publish(mqData.topic_msg, "ON");
+      client.publish(mqData.topic_msg.c_str(), "ON");
       tempData.temp_keep == false;
     }
     else
     {
       Serial.println("OK");
-      client.publish(mqData.topic_msg, "KEEP");
+      client.publish(mqData.topic_msg.c_str(), "KEEP");
     }
   }
-  else if (strcmp(topic, mqData.topic_high) == 0)
+  else if (strcmp(topic, mqData.topic_high.c_str()) == 0)
   {
     char high_str[10];
     strncpy(high_str, (const char *)payload, length);
@@ -415,7 +424,7 @@ void callback(char *topic, byte *payload, unsigned int length)
       tempData.temp_high = high_t;
     }
   }
-  else if (strcmp(topic, mqData.topic_low) == 0)
+  else if (strcmp(topic, mqData.topic_low.c_str()) == 0)
   {
     char low_str[10];
     strncpy(low_str, (const char *)payload, length);
@@ -453,7 +462,7 @@ void setup()
     client.setServer(mqData.mqtt_broker.c_str(), mqData.mqtt_port);
     Serial.println("EEPROM read WiFi...");
     connectToWiFi();
-    reconnect();
+    reconnectToMqtt();
     client.setCallback(callback);
     dht.begin();
   }
@@ -489,7 +498,7 @@ void loop()
   {
     if (!client.connected())
     {
-      reconnect();
+      reconnectToMqtt();
     }
     client.loop();
     unsigned long currentMillis = millis();

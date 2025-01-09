@@ -1,24 +1,18 @@
 #include <Arduino.h>
-
 #include <WiFi.h>
 #include <EEPROM.h>
 #include <WebServer.h>
 #include <PubSubClient.h>
 #include <WiFiClientSecure.h>
-
 #include "DHT.h"
 
 // 定义用于擦除信息的引脚
-#define EEPROM_SIZE 100
 #define ERASE_PIN 5
+#define EEPROM_SIZE 100
 // 继电器引脚
 #define controlPin 2
 // 温湿度读取引脚
 #define DHTPIN 1
-
-unsigned long previousMillis = 0;
-const long interval = 10000;
-
 // 温湿度传感器型号
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
@@ -33,34 +27,37 @@ struct TemperatureData
   // 低温开启
   float temp_low = 30.0;
   // 高温关闭
-  float temp_high = 40.0;
+  float temp_high = 45.0;
   // keep 温度
   boolean temp_keep = false;
 };
 TemperatureData tempData;
 
-// 存储用户输入的目标 WiFi 的 SSID 和密码
+// mqtt服务相关信息
+struct MqttMsgData
+{
+  int mqtt_port;        // MQTT port (TLS)
+  String mqtt_broker;   // EMQX broker endpoint
+  String mqtt_username; // MQTT username for authentication
+  String mqtt_password; // MQTT password for authentication
+  String mqtt_topic;    // MQTT topic
+  const char *topic_sub = (mqtt_topic + "/#").c_str();
+  const char *topic_temp = (mqtt_topic + "/temp").c_str();
+  const char *topic_msg = (mqtt_topic + "/msg").c_str();
+  const char *topic_high = (mqtt_topic + "/high").c_str();
+  const char *topic_low = (mqtt_topic + "/low").c_str();
+  const char *topic_hum = (mqtt_topic + "/hum").c_str();
+  const char *topic_heat = (mqtt_topic + "/heat").c_str();
+};
+MqttMsgData mqData;
+
 String targetSSID;
 String targetPassword;
 
 WiFiClientSecure espClient;
 PubSubClient client(espClient);
 
-// // mqtt服务相关
-// const int mqtt_port = 1883;
-// String mqtt_broker = "192.168.6.248";
-// String mqtt_username = "esp32s3";
-// String mqtt_password = "123456";
-// String mqtt_topic = "testtopic/#";
-
-// MQTT Broker settings
-const int mqtt_port = 8883;                                // MQTT port (TLS)
-String mqtt_broker = "ebd16e9d.ala.cn-hangzhou.emqxsl.cn"; // EMQX broker endpoint
-String mqtt_username = "esp32c3print";                     // MQTT username for authentication
-String mqtt_password = "yjMMjxnbcPNifc8";                  // MQTT password for authentication
-String mqtt_topic = "testtopic";                           // MQTT topic
-
-const char *ssid_AP = "MyESP32S3AP";
+const char *ssid_AP = "MyESPAP";
 const char *password_AP = "12345678";
 IPAddress local_IP(192, 168, 4, 1);
 IPAddress gateway(192, 168, 4, 1);
@@ -68,54 +65,128 @@ IPAddress subnet(255, 255, 255, 0);
 
 WebServer server(80);
 
-// 从 EEPROM 读取 WiFi 信息
-void readWiFiInfoFromEEPROM()
+unsigned long previousMillis = 0;
+const long interval = 10000;
+
+// 从 EEPROM 读取 WiFi 和 MQTT 信息
+void readInfoFromEEPROM()
 {
   EEPROM.begin(EEPROM_SIZE);
   int ssidLength = EEPROM.read(0);
   int passLength = EEPROM.read(1);
-  if (ssidLength > 0 && passLength > 0)
+  int mqttBrokerLength = EEPROM.read(2);
+  int mqttUserLength = EEPROM.read(3);
+  int mqttPassLength = EEPROM.read(4);
+  int mqttTopicLength = EEPROM.read(5);
+  int mqttPort = (EEPROM.read(6) << 8) | EEPROM.read(7);
+
+  if (ssidLength > 0 && passLength > 0 && mqttBrokerLength > 0 && mqttUserLength > 0 && mqttPassLength > 0 && mqttTopicLength > 0)
   {
     char ssid[ssidLength + 1];
     char pass[passLength + 1];
+    char mqtt_broker[mqttBrokerLength + 1];
+    char mqtt_username[mqttUserLength + 1];
+    char mqtt_password[mqttPassLength + 1];
+    char mqtt_topic[mqttTopicLength + 1];
+
     for (int i = 0; i < ssidLength; i++)
     {
-      ssid[i] = EEPROM.read(i + 2);
+      ssid[i] = EEPROM.read(i + 8);
     }
     ssid[ssidLength] = '\0';
+
     for (int i = 0; i < passLength; i++)
     {
-      pass[i] = EEPROM.read(i + 2 + ssidLength);
+      pass[i] = EEPROM.read(i + 8 + ssidLength);
     }
     pass[passLength] = '\0';
+
+    for (int i = 0; i < mqttBrokerLength; i++)
+    {
+      mqtt_broker[i] = EEPROM.read(i + 8 + ssidLength + passLength);
+    }
+    mqtt_broker[mqttBrokerLength] = '\0';
+
+    for (int i = 0; i < mqttUserLength; i++)
+    {
+      mqtt_username[i] = EEPROM.read(i + 8 + ssidLength + passLength + mqttBrokerLength);
+    }
+    mqtt_username[mqttUserLength] = '\0';
+
+    for (int i = 0; i < mqttPassLength; i++)
+    {
+      mqtt_password[i] = EEPROM.read(i + 8 + ssidLength + passLength + mqttBrokerLength + mqttUserLength);
+    }
+    mqtt_password[mqttPassLength] = '\0';
+
+    for (int i = 0; i < mqttTopicLength; i++)
+    {
+      mqtt_topic[i] = EEPROM.read(i + 8 + ssidLength + passLength + mqttBrokerLength + mqttUserLength + mqttPassLength);
+    }
+    mqtt_topic[mqttTopicLength] = '\0';
+
     targetSSID = String(ssid);
     targetPassword = String(pass);
+    mqData.mqtt_broker = String(mqtt_broker);
+    mqData.mqtt_username = String(mqtt_username);
+    mqData.mqtt_password = String(mqtt_password);
+    mqData.mqtt_topic = String(mqtt_topic);
+    mqData.mqtt_port = mqttPort;
   }
   EEPROM.end();
 }
 
-// 将 WiFi 信息保存到 EEPROM
-void saveWiFiInfoToEEPROM(String ssid, String password)
+// 将 WiFi 和 MQTT 信息保存到 EEPROM
+void saveInfoToEEPROM(String ssid, String password, String mqtt_broker, String mqtt_username, String mqtt_password, String mqtt_topic, int mqtt_port)
 {
   EEPROM.begin(EEPROM_SIZE);
   int ssidLength = ssid.length();
   int passLength = password.length();
+  int mqttBrokerLength = mqtt_broker.length();
+  int mqttUserLength = mqtt_username.length();
+  int mqttPassLength = mqtt_password.length();
+  int mqttTopicLength = mqtt_topic.length();
+
   EEPROM.write(0, ssidLength);
   EEPROM.write(1, passLength);
+  EEPROM.write(2, mqttBrokerLength);
+  EEPROM.write(3, mqttUserLength);
+  EEPROM.write(4, mqttPassLength);
+  EEPROM.write(5, mqttTopicLength);
+  EEPROM.write(6, mqtt_port >> 8);   // 存储高字节
+  EEPROM.write(7, mqtt_port & 0xFF); // 存储低字节
+
   for (int i = 0; i < ssidLength; i++)
   {
-    EEPROM.write(i + 2, ssid.charAt(i));
+    EEPROM.write(i + 8, ssid.charAt(i));
   }
   for (int i = 0; i < passLength; i++)
   {
-    EEPROM.write(i + 2 + ssidLength, password.charAt(i));
+    EEPROM.write(i + 8 + ssidLength, password.charAt(i));
   }
+  for (int i = 0; i < mqttBrokerLength; i++)
+  {
+    EEPROM.write(i + 8 + ssidLength + passLength, mqtt_broker.charAt(i));
+  }
+  for (int i = 0; i < mqttUserLength; i++)
+  {
+    EEPROM.write(i + 8 + ssidLength + passLength + mqttBrokerLength, mqtt_username.charAt(i));
+  }
+  for (int i = 0; i < mqttPassLength; i++)
+  {
+    EEPROM.write(i + 8 + ssidLength + passLength + mqttBrokerLength + mqttUserLength, mqtt_password.charAt(i));
+  }
+  for (int i = 0; i < mqttTopicLength; i++)
+  {
+    EEPROM.write(i + 8 + ssidLength + passLength + mqttBrokerLength + mqttUserLength + mqttPassLength, mqtt_topic.charAt(i));
+  }
+
   EEPROM.commit();
   EEPROM.end();
 }
 
-// 擦除 EEPROM 中的 WiFi 信息
-void eraseWiFiInfoFromEEPROM()
+// 擦除 EEPROM 中的 WiFi 和 MQTT 信息
+void eraseInfoFromEEPROM()
 {
   EEPROM.begin(EEPROM_SIZE);
   for (int i = 0; i < EEPROM_SIZE; i++)
@@ -126,15 +197,25 @@ void eraseWiFiInfoFromEEPROM()
   EEPROM.end();
   targetSSID = "";
   targetPassword = "";
+  mqData.mqtt_broker = "";
+  mqData.mqtt_username = "";
+  mqData.mqtt_password = "";
+  mqData.mqtt_topic = "";
+  mqData.mqtt_port = 0;
 }
 
-// 处理根页面，显示 WiFi 配置表单
+// 处理根页面，显示 WiFi 配置表单和 MQTT 配置表单
 void handleRoot()
 {
-  String html = "<html><body><h1>WiFi Configuration</h1>"
+  String html = "<html><body><h1>WiFi and MQTT Config</h1>"
                 "<form method='post' action='/config'>"
                 "WiFi SSID: <input type='text' name='ssid'><br>"
                 "WiFi Password: <input type='password' name='password'><br>"
+                "MQTT Broker: <input type='text' name='mqtt_broker'><br>"
+                "MQTT Username: <input type='text' name='mqtt_username'><br>"
+                "MQTT Password: <input type='password' name='mqtt_password'><br>"
+                "MQTT Port: <input type='number' name='mqtt_port'><br>" // 添加 MQTT 端口输入框
+                "MQTT Topic: <input type='text' name='mqtt_topic'><br>"
                 "<input type='submit' value='Submit'></form></body></html>";
   server.send(200, "text/html", html);
 }
@@ -171,45 +252,22 @@ void checkErasePin()
   if (digitalRead(ERASE_PIN) == HIGH)
   {
     Serial.println("Erasing WiFi information...");
-    eraseWiFiInfoFromEEPROM();
+    eraseInfoFromEEPROM();
     // 等待一段时间，防止误触发
     delay(1000);
   }
 }
-
-// 处理用户提交的 WiFi 配置信息
-void handleConfig()
-{
-  if (server.method() == HTTP_POST)
-  {
-    targetSSID = server.arg("ssid");
-    targetPassword = server.arg("password");
-    Serial.print("Received SSID: ");
-    Serial.println(targetSSID);
-    Serial.print("Received Password: ");
-    Serial.println(targetPassword);
-    server.send(200, "text/plain", "Configuration received. Connecting to WiFi...");
-    // 保存 WiFi 信息到 EEPROM
-    saveWiFiInfoToEEPROM(targetSSID, targetPassword);
-    // 尝试连接到目标 WiFi
-    connectToWiFi();
-  }
-  else
-  {
-    server.send(405, "text/plain", "Method Not Allowed");
-  }
-}
-
 // 连接mqtt服务
 void reconnect()
 {
   while (!client.connected())
   {
     Serial.print("Attempting MQTT connection...");
-    if (client.connect("esp32c3printid", mqtt_username.c_str(), mqtt_password.c_str()))
+    // 第一个参数为id 默认保持一直减少配网填写信息
+    if (client.connect(mqData.mqtt_username.c_str(), mqData.mqtt_username.c_str(), mqData.mqtt_password.c_str()))
     {
       Serial.println("connected");
-      client.subscribe((mqtt_topic + "/#").c_str());
+      client.subscribe(mqData.topic_sub);
     }
     else
     {
@@ -221,7 +279,31 @@ void reconnect()
   }
 }
 
-// 封装的函数，用于读取传感器数据
+// 处理用户提交的 WiFi 配置信息和 MQTT 配置信息
+void handleConfig()
+{
+  if (server.method() == HTTP_POST)
+  {
+    targetSSID = server.arg("ssid");
+    targetPassword = server.arg("password");
+    mqData.mqtt_broker = server.arg("mqtt_broker");
+    mqData.mqtt_username = server.arg("mqtt_username");
+    mqData.mqtt_password = server.arg("mqtt_password");
+    mqData.mqtt_topic = server.arg("mqtt_topic");
+    mqData.mqtt_port = server.arg("mqtt_port").toInt();
+
+    server.send(200, "text/plain", "Configuration received. Connecting to WiFi and MQTT...");
+    saveInfoToEEPROM(targetSSID, targetPassword, mqData.mqtt_broker, mqData.mqtt_username, mqData.mqtt_password, mqData.mqtt_topic, mqData.mqtt_port);
+    // 尝试连接到目标 WiFi 和 MQTT
+    connectToWiFi();
+    reconnect();
+  }
+  else
+  {
+    server.send(405, "text/plain", "Method Not Allowed");
+  }
+}
+
 /**
  * 读取DHT传感器数据的函数
  * 该函数负责读取DHT传感器的湿度、温度和体感温度，并将这些数据存储在全局变量中。
@@ -243,6 +325,30 @@ void readDHTData()
   // 计算体感温度并存储在temperature_heat变量中
   tempData.temperature_heat = dht.computeHeatIndex(tempData.temperature_celsius, tempData.humidity, false);
 }
+void publishSensorData()
+{
+  readDHTData();
+
+  char tempStr[8];
+  dtostrf(tempData.temperature_celsius, 4, 2, tempStr);
+  client.publish(mqData.topic_temp, tempStr);
+
+  char humStr[8];
+  dtostrf(tempData.humidity, 4, 2, humStr);
+  client.publish(mqData.topic_hum, humStr);
+
+  char heatStr[8];
+  dtostrf(tempData.temperature_heat, 4, 2, heatStr);
+  client.publish(mqData.topic_heat, heatStr);
+
+  char highStr[8];
+  dtostrf(tempData.temp_high, 4, 2, highStr);
+  client.publish(mqData.topic_high, highStr);
+
+  char lowStr[8];
+  dtostrf(tempData.temp_low, 4, 2, lowStr);
+  client.publish(mqData.topic_low, lowStr);
+}
 
 void callback(char *topic, byte *payload, unsigned int length)
 {
@@ -257,7 +363,7 @@ void callback(char *topic, byte *payload, unsigned int length)
   Serial.println();
 
   // 控制继电器开关
-  if (strcmp(topic, "testtopic/temp") == 0)
+  if (strcmp(topic, mqData.topic_temp) == 0)
   {
     char message[length + 1];
     memcpy(message, payload, length);
@@ -281,23 +387,23 @@ void callback(char *topic, byte *payload, unsigned int length)
     {
       digitalWrite(controlPin, LOW);
       Serial.println("关闭加热");
-      client.publish("testtopic/msg", "OFF");
+      client.publish(mqData.topic_msg, "OFF");
       tempData.temp_keep = true;
     }
     else if (floatValue <= tempData.temp_low || !tempData.temp_keep)
     {
       digitalWrite(controlPin, HIGH);
       Serial.println("开启加热");
-      client.publish("testtopic/msg", "ON");
+      client.publish(mqData.topic_msg, "ON");
       tempData.temp_keep == false;
     }
     else
     {
       Serial.println("OK");
-      client.publish("testtopic/msg", "KEEP");
+      client.publish(mqData.topic_msg, "KEEP");
     }
   }
-  else if (strcmp(topic, "testtopic/high") == 0)
+  else if (strcmp(topic, mqData.topic_high) == 0)
   {
     char high_str[10];
     strncpy(high_str, (const char *)payload, length);
@@ -309,7 +415,7 @@ void callback(char *topic, byte *payload, unsigned int length)
       tempData.temp_high = high_t;
     }
   }
-  else if (strcmp(topic, "testtopic/low") == 0)
+  else if (strcmp(topic, mqData.topic_low) == 0)
   {
     char low_str[10];
     strncpy(low_str, (const char *)payload, length);
@@ -323,36 +429,33 @@ void callback(char *topic, byte *payload, unsigned int length)
   }
 }
 
-// 发布消息
-void publishMessage(const char *message)
-{
-  if (!client.connected())
-  {
-    reconnect();
-  }
-  client.publish(mqtt_topic.c_str(), message);
-  Serial.println("Message published");
-}
-
 void setup()
 {
   Serial.begin(115200);
   pinMode(controlPin, OUTPUT);
   pinMode(ERASE_PIN, INPUT);
+  // // 设置 WiFiClientSecure 为 TLS 模式
+  // const char *caCert = "-----BEGIN CERTIFICATE-----\n"
+  //                      "输入自己的CA证书"
+  //                      "-----END CERTIFICATE-----";
+  // espClient.setCACert(caCert);
+
+  // 与上面二选一
+  espClient.setCACert(NULL);
+  espClient.setInsecure();
 
   EEPROM.begin(EEPROM_SIZE);
-  readWiFiInfoFromEEPROM();
   checkErasePin();
-
-  size_t psramSize = ESP.getPsramSize();
-  Serial.print("PSRAM Size: ");
-  Serial.print(psramSize);
-  Serial.println(" bytes");
+  readInfoFromEEPROM();
 
   if (targetSSID.length() > 0 && targetPassword.length() > 0)
   {
-    Serial.println(" EEPROM read WiFi...");
+    client.setServer(mqData.mqtt_broker.c_str(), mqData.mqtt_port);
+    Serial.println("EEPROM read WiFi...");
     connectToWiFi();
+    reconnect();
+    client.setCallback(callback);
+    dht.begin();
   }
   else
   {
@@ -378,21 +481,6 @@ void setup()
       Serial.println("Failed to start SoftAP!");
     }
   }
-
-  // // 设置 WiFiClientSecure 为 TLS 模式
-  // const char *caCert = "-----BEGIN CERTIFICATE-----\n"
-  //                      "输入自己的CA证书"
-  //                      "-----END CERTIFICATE-----";
-  // espClient.setCACert(caCert);
-
-  // 与上面二选一
-  espClient.setCACert(NULL);
-  espClient.setInsecure();
-
-  client.setServer(mqtt_broker.c_str(), mqtt_port);
-  client.setCallback(callback);
-
-  dht.begin();
 }
 
 void loop()
@@ -404,32 +492,11 @@ void loop()
       reconnect();
     }
     client.loop();
-    // 使用millis()函数来判断是否到达读取传感器数据的时间间隔
     unsigned long currentMillis = millis();
     if (currentMillis - previousMillis >= interval)
     {
       previousMillis = currentMillis;
-      readDHTData();
-      // 将温度数据发布到MQTT主题
-      char tempStr[8];
-      dtostrf(tempData.temperature_celsius, 4, 2, tempStr);
-      client.publish("testtopic/temp", tempStr);
-
-      char humStr[8];
-      dtostrf(tempData.humidity, 4, 2, humStr);
-      client.publish("testtopic/hum", humStr);
-
-      char heatStr[8];
-      dtostrf(tempData.temperature_heat, 4, 2, heatStr);
-      client.publish("testtopic/heat", heatStr);
-
-      char highStr[8];
-      dtostrf(tempData.temp_high, 4, 2, highStr);
-      client.publish("testtopic/high", highStr);
-
-      char lowStr[8];
-      dtostrf(tempData.temp_low, 4, 2, heatStr);
-      client.publish("testtopic/low", heatStr);
+      publishSensorData();
     }
   }
   else

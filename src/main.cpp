@@ -234,6 +234,8 @@ void connectToWiFi()
   WiFi.disconnect();
   WiFi.mode(WIFI_STA);
   WiFi.begin(targetSSID.c_str(), targetPassword.c_str());
+  // esp32c3 super mini 当网络连接不稳定时需要添加此代码
+  // WiFi.setTxPower(WIFI_POWER_8_5dBm);
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 20)
   {
@@ -317,18 +319,13 @@ void handleConfig()
 // 读取DHT传感器数据的函数
 void readDHTData()
 {
-  // 读取湿度数据并存储在humidity变量中
   tempData.humidity = dht.readHumidity();
-  // 读取温度数据并存储在temperature_celsius变量中
   tempData.temperature_celsius = dht.readTemperature();
-  // 检查湿度或温度数据是否无效
   if (isnan(tempData.humidity) || isnan(tempData.temperature_celsius))
   {
-    // 如果数据无效，打印错误信息并返回
     Serial.println(F("Failed to read from DHT sensor!"));
     return;
   }
-  // 计算体感温度并存储在temperature_heat变量中
   tempData.temperature_heat = dht.computeHeatIndex(tempData.temperature_celsius, tempData.humidity, false);
 }
 
@@ -442,6 +439,7 @@ void setup()
 {
   Serial.begin(115200);
   pinMode(controlPin, OUTPUT);
+  digitalWrite(controlPin, LOW);
   pinMode(ERASE_PIN, INPUT);
   // // 设置 WiFiClientSecure 为 TLS 模式
   // const char *caCert = "-----BEGIN CERTIFICATE-----\n"
